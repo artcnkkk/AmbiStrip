@@ -1,0 +1,20 @@
+# Python / docs as LF so Windows checkout does not churn diffs.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.mdc text eol=lf
+
+*.bat text eol=crlf
+*.ps1 text eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.webp binary
+*.typed text

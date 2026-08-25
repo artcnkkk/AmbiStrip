@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ledsetup"
+version = "0.1.0"
+description = "CLI for one analog RGB Smartbuy/Zengge LEDnetWF strip over BLE"
+requires-python = ">=3.11"
+dependencies = [
+    "bleak>=0.22",
+    "pywebview>=5.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[project.scripts]
+ledsetup = "ledsetup.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ledsetup = ["web/*", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/ is on pythonpath so `from fake_ble import ...` works without a tests package.
+pythonpath = ["src", "tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "RUF001",  # Russian UI strings (Cyrillic vs Latin lookalikes)
+    "RUF002",
+    "RUF003",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["ledsetup"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["webview", "webview.*"]
+ignore_missing_imports = true

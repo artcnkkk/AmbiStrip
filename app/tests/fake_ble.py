@@ -1,0 +1,88 @@
+"""Fake BLE client for tests — no adapter."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+from ledsetup.ble import NOTIFY_UUID, SERVICE_UUID, WRITE_UUID, uuids_equal
+from ledsetup.types import BleClient, DisconnectFn
+
+
+class FakeChar:
+    def __init__(self, uuid: str, properties: tuple[str, ...], handle: int | None = None) -> None:
+        self.uuid = uuid
+        self.properties = properties
+        self.handle = handle
+
+
+class FakeService:
+    def __init__(self, uuid: str, characteristics: list[FakeChar]) -> None:
+        self.uuid = uuid
+        self.characteristics = characteristics
+
+
+class FakeServices:
+    def __init__(self, services: list[FakeService]) -> None:
+        self._services = services
+
+    def __iter__(self) -> Iterator[FakeService]:
+        return iter(self._services)
+
+    def get_characteristic(self, uuid: str) -> FakeChar | None:
+        for service in self._services:
+            for char in service.characteristics:
+                if uuids_equal(str(char.uuid), str(uuid)):
+                    return char
+        return None
+
+
+class FakeClient:
+    def __init__(self, address: str = "E4:98:BB:6B:1A:AC") -> None:
+        self.address = address
+        self.is_connected = False
+        self.connect_calls = 0
+        self.write_calls = 0
+        self.notify_calls = 0
+        self.written: list[bytes] = []
+        write = FakeChar(WRITE_UUID, ("write",), 12)
+        notify = FakeChar(NOTIFY_UUID, ("notify",), 13)
+        self.services = FakeServices([FakeService(SERVICE_UUID, [write, notify])])
+
+    async def connect(self) -> None:
+        self.connect_calls += 1
+        self.is_connected = True
+
+    async def disconnect(self) -> None:
+        self.is_connected = False
+
+    async def write_gatt_char(
+        self, char_specifier: object, data: bytes, response: bool = True
+    ) -> None:
+        self.write_calls += 1
+        self.written.append(bytes(data))
+
+    async def start_notify(self, char_specifier: object, callback: object) -> None:
+        self.notify_calls += 1
+
+
+class FakeOpener:
+    def __init__(self, client: FakeClient | None = None) -> None:
+        self.client = client or FakeClient()
+        self.open_calls = 0
+        self.close_calls = 0
+
+    async def open(
+        self,
+        address: str,
+        timeout: float,
+        on_disconnect: DisconnectFn | None = None,
+    ) -> FakeClient:
+        self.open_calls += 1
+        self.client.address = address
+        await self.client.connect()
+        return self.client
+
+    async def close(self, client: BleClient | None) -> None:
+        self.close_calls += 1
+        if client is not None:
+            await client.disconnect()

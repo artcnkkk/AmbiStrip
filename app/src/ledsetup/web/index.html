@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LEDSetup</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div>
+        <h1>LEDSetup</h1>
+        <p class="muted">Вся лента — один цвет</p>
+      </div>
+      <div class="top-actions" id="top-actions" hidden>
+        <button type="button" class="text-btn" id="btn-gatt">GATT</button>
+        <button type="button" class="text-btn" id="btn-settings">Настройки</button>
+      </div>
+    </header>
+
+    <section id="view-device" class="view">
+      <p class="kicker">Шаг 1 из 2</p>
+      <h2>Какая лента?</h2>
+      <p class="lead">Имя в Bluetooth может меняться. Запоминаем адрес.</p>
+      <button type="button" class="primary" id="btn-scan">Найти ленту</button>
+      <p class="status" id="device-status"></p>
+      <div id="device-list" class="cards"></div>
+    </section>
+
+    <section id="view-color" class="view" hidden>
+      <button type="button" class="text-btn back" id="btn-back">← Сменить ленту</button>
+      <div class="status-row">
+        <span class="dot" id="link-dot"></span>
+        <span id="link-text">Не подключено</span>
+        <span class="sep">·</span>
+        <span id="device-label" class="muted"></span>
+        <button type="button" class="ghost small" id="btn-toggle">Подключить</button>
+      </div>
+      <p class="kicker">Шаг 2 из 2</p>
+      <h2>Цвет</h2>
+      <div class="strip" id="strip">
+        <span>лента</span>
+      </div>
+      <p class="rgb" id="rgb-readout">255  40  40</p>
+      <div class="picker">
+        <canvas id="sv" width="280" height="280"></canvas>
+        <canvas id="hue" width="280" height="18"></canvas>
+      </div>
+      <div class="presets" id="presets"></div>
+      <div class="power">
+        <button type="button" class="danger" id="btn-off">Выключить</button>
+        <div class="on-wrap">
+          <button type="button" class="ghost" id="btn-on">Включить</button>
+          <span class="on-note">гипотеза, на ките не проверяли</span>
+        </div>
+      </div>
+      <p class="status" id="color-status"></p>
+    </section>
+  </div>
+
+  <div class="overlay" id="overlay" hidden>
+    <div class="sheet" id="sheet"></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
