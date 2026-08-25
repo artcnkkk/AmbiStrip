@@ -8,6 +8,7 @@ from ledsetup.ble import DeviceHit
 from ledsetup.cli import build_parser, main
 from ledsetup.device import load_selected, save_selected, selected_from_hit
 from ledsetup.menu import (
+    MAIN_CHOICES,
     NON_TTY_MESSAGE,
     parse_menu_choice,
     parse_rgb_line,
@@ -20,6 +21,7 @@ from ledsetup.settings import load_settings
 
 def test_parse_menu_choice() -> None:
     assert parse_menu_choice(" 3 ", "01234567") == "3"
+    assert parse_menu_choice("8", MAIN_CHOICES) == "8"
     try:
         parse_menu_choice("9", "01234567")
     except Exception as exc:
@@ -96,6 +98,7 @@ def test_main_menu_and_exit(tmp_path: Path) -> None:
     assert "устройство: не выбрано" in text
     assert "1. Сканировать и выбрать устройство" in text
     assert "7. Настройки" in text
+    assert "8. Экран → лента" in text
     assert opener.open_calls == 0
 
 

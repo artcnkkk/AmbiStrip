@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import replace
 from enum import Enum
 from pathlib import Path
@@ -12,6 +14,13 @@ from typing import cast
 
 from ledsetup import NAME_PREFIX_HINT, __version__
 from ledsetup.ble import BluetoothUnavailableError, WriteTargetError, scan_devices
+from ledsetup.capture import (
+    MonitorInfo,
+    ScreenGrabber,
+    grab_average,
+    list_monitors,
+    resolve_monitor,
+)
 from ledsetup.color import parse_rgb_triple
 from ledsetup.device import (
     SelectedDevice,
@@ -23,7 +32,7 @@ from ledsetup.device import (
     save_selected,
     selected_from_hit,
 )
-from ledsetup.exceptions import SettingsError
+from ledsetup.exceptions import CaptureError, SettingsError
 from ledsetup.gatt_text import format_gatt_lines
 from ledsetup.protocol import (
     HYPOTHESIS_NOTE,
@@ -40,12 +49,14 @@ from ledsetup.settings import (
     parse_timeout_input,
     save_settings,
 )
+from ledsetup.sync_loop import run_screen_sync
+from ledsetup.throttle import ColorThrottle
 from ledsetup.types import RGB, InputFn, PrintFn, ScanFn
 
 NON_TTY_MESSAGE = (
     "терминальное меню нужно запускать в PowerShell / Windows Terminal: `ledsetup menu`. "
     "Или откройте окно: `ledsetup`. "
-    "Подкоманды: scan, gatt, on, off, color. Справка: ledsetup --help"
+    "Подкоманды: scan, gatt, on, off, color, sync. Справка: ledsetup --help"
 )
 
 COLOR_PRESETS: dict[str, tuple[str, int, int, int]] = {
@@ -55,7 +66,7 @@ COLOR_PRESETS: dict[str, tuple[str, int, int, int]] = {
     "4": ("Белый", 255, 255, 255),
 }
 
-MAIN_CHOICES = frozenset("01234567")
+MAIN_CHOICES = frozenset("012345678")
 COLOR_CHOICES = frozenset("012345")
 SETTINGS_CHOICES = frozenset("01234")
 
@@ -116,6 +127,7 @@ class MenuApp:
         session: BleSession,
         scan_fn: ScanFn,
         settings: AppSettings,
+        grabber: ScreenGrabber | None = None,
     ) -> None:
         self._input = input_fn
         self._print = print_fn
@@ -125,12 +137,15 @@ class MenuApp:
         self._scan_fn = scan_fn
         self.settings = settings
         self.screen = Screen.MAIN
+        self._grabber = grabber
+        self._ask_lock = threading.Lock()
 
     def emit(self, msg: str = "") -> None:
         self._print(msg)
 
     def ask(self, prompt: str) -> str:
-        return self._input(prompt)
+        with self._ask_lock:
+            return self._input(prompt)
 
     def selected(self) -> SelectedDevice | None:
         return load_selected(self._device_path)
@@ -209,6 +224,9 @@ class MenuApp:
             return True
         if choice == "7":
             self.screen = Screen.SETTINGS
+            return True
+        if choice == "8":
+            await self._run_sync()
             return True
         return True
 
@@ -338,6 +356,79 @@ class MenuApp:
         for line in format_gatt_lines(snapshot):
             self.emit(line)
 
+    def _pick_monitor(self, monitors: list[MonitorInfo]) -> MonitorInfo | None:
+        for item in monitors:
+            self.emit(f"{item.index}. {item.label}")
+        try:
+            raw = self.ask("номер монитора (Enter — сохранённый / основной): ")
+        except EOFError:
+            self.emit("ввод прерван")
+            return None
+        text = raw.strip()
+        if not text:
+            monitor, note = resolve_monitor(monitors, saved_id=self.settings.monitor_id)
+            if note:
+                self.emit(note)
+            return monitor
+        try:
+            monitor, _note = resolve_monitor(monitors, flag=text)
+        except CaptureError as exc:
+            self.emit(str(exc))
+            return None
+        self.settings = replace(self.settings, monitor_id=monitor.id)
+        self.persist_settings()
+        return monitor
+
+    async def _run_sync(self) -> None:
+        if not await self.ensure_connected():
+            return
+        try:
+            monitors = list_monitors(self._grabber)
+        except CaptureError as exc:
+            self.emit(str(exc))
+            return
+        monitor = self._pick_monitor(monitors)
+        if monitor is None:
+            return
+        self.emit(f"захват: {monitor.label}")
+        self.emit("Enter — остановить. Лента останется на последнем цвете.")
+        stop = threading.Event()
+
+        def wait_enter() -> None:
+            with suppress(EOFError):
+                self.ask("")
+            stop.set()
+
+        waiter = threading.Thread(target=wait_enter, daemon=True)
+        waiter.start()
+        last: RGB | None = None
+
+        async def send(rgb: RGB) -> None:
+            await self.session.write(build_rgb_frame(*rgb))
+
+        def sample() -> RGB:
+            return grab_average(monitor, self._grabber)
+
+        try:
+            last = await run_screen_sync(
+                sample=sample,
+                send=send,
+                should_stop=stop.is_set,
+                throttle=ColorThrottle(),
+            )
+        except (
+            CaptureError,
+            BluetoothUnavailableError,
+            WriteTargetError,
+            NotConnectedError,
+        ) as exc:
+            self.emit(str(exc))
+            return
+        if last is None:
+            self.emit("sync остановлен")
+            return
+        self.emit(f"sync остановлен, последний цвет {last[0]} {last[1]} {last[2]}")
+
     def _print_main_menu(self) -> None:
         link = "Отключить" if self.session.is_connected else "Подключить"
         self.emit("1. Сканировать и выбрать устройство")
@@ -347,6 +438,7 @@ class MenuApp:
         self.emit("5. Выключить (off)")
         self.emit("6. GATT")
         self.emit("7. Настройки…")
+        self.emit("8. Экран → лента (sync)")
         self.emit("0. Выход")
 
     def _print_color_menu(self) -> None:
@@ -404,6 +496,7 @@ async def run_menu(
     settings_path: Path | None = None,
     session: BleSession | None = None,
     scan_fn: ScanFn | None = None,
+    grabber: ScreenGrabber | None = None,
 ) -> int:
     settings = load_settings(settings_path)
     printer = _as_print_fn(print_fn)
@@ -418,6 +511,7 @@ async def run_menu(
         session=held,
         scan_fn=scan_fn or scan_devices,
         settings=settings,
+        grabber=grabber,
     )
     try:
         return await app.loop()
@@ -434,6 +528,7 @@ def run_interactive(
     settings_path: Path | None = None,
     session: BleSession | None = None,
     scan_fn: ScanFn | None = None,
+    grabber: ScreenGrabber | None = None,
 ) -> int:
     interactive = sys.stdin.isatty() if argv_tty is None else argv_tty
     out = _as_print_fn(print_fn)
@@ -449,6 +544,7 @@ def run_interactive(
                 settings_path=settings_path,
                 session=session,
                 scan_fn=scan_fn,
+                grabber=grabber,
             )
         )
     except KeyboardInterrupt:

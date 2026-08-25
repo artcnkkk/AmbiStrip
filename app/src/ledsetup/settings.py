@@ -1,4 +1,4 @@
-"""Persisted app settings. Timeouts and verbose GATT dump after write."""
+"""Persisted app settings. Timeouts, verbose GATT dump, last monitor for sync."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class AppSettings:
     scan_timeout: float = DEFAULT_SCAN_TIMEOUT
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
     verbose_gatt_after_write: bool = False
+    monitor_id: str = ""
 
 
 def default_settings_path() -> Path:
@@ -86,10 +87,14 @@ def load_settings(path: Path | None = None) -> AppSettings:
     verbose = raw.get("verbose_gatt_after_write", False)
     if not isinstance(verbose, bool):
         verbose = bool(verbose)
+    monitor_id = raw.get("monitor_id", "")
+    if not isinstance(monitor_id, str):
+        monitor_id = ""
     return AppSettings(
         scan_timeout=scan,
         connect_timeout=connect,
         verbose_gatt_after_write=verbose,
+        monitor_id=monitor_id.strip(),
     )
 
 

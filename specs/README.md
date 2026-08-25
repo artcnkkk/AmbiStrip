@@ -35,7 +35,7 @@ draft → (пользователь утверждает) → approved → in-pr
 | 002 | [002-scan-device-select](002-scan-device-select/spec.md) | `in-progress` | S1 |
 | 003 | [003-terminal-menu-app](003-terminal-menu-app/spec.md) | `done` | S1 частично, S3, мин. S4 в терминале |
 | 004 | [004-desktop-color-picker](004-desktop-color-picker/spec.md) | `done` | S4, S3, меню → окно |
-| 005 | [005-screen-color-sync](005-screen-color-sync/spec.md) | `draft` | S5 |
+| 005 | [005-screen-color-sync](005-screen-color-sync/spec.md) | `in-progress` | S5 |
 | 006 | [006-typed-refactor](006-typed-refactor/spec.md) | `done` | качество кода S1–S4 |
 
 ## Сценарии продукта

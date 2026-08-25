@@ -37,7 +37,7 @@ ZENGGE и/или удержание линка Windows **мешают** connect,
 | Write | `0000FF01-0000-1000-8000-00805F9B34FB` | handle=22, props=`write` + `write-without-response` |
 | Notify | `0000FF02-0000-1000-8000-00805F9B34FB` | handle=19, props=`notify` + `read` |
 
-CLI пишет в FF01 методом **`write` (с response)** — оба свойства есть, `write` выбирается первым. CCCD на FF02 включался перед write. **Обязателен ли CCCD**, чтобы устройство приняло write — TBD.
+CLI/сессия пишут в FF01 методом **`write-without-response`**, если свойство есть (на этом ките — оба). `write` с response на частоте sync (~10 Гц) на WinRT через какое-то время даёт `characteristic 0016: Unreachable` (handle `0x0016` = 22 = FF01); кадр тот же, меняется только ATT. CCCD на FF02 включался перед write. **Обязателен ли CCCD**, чтобы устройство приняло write — TBD.
 
 Также есть стандартные GAP/GATT (`1800`/`1801`) и **другой** вендорский service `0000FE00-…` с `FF22` (write-without-response, notify, read, handle=13) и `FF11` (write-without-response, handle=16). В них CLI **не** пишет: UUID гипотезы совпали и write в FF01 сработал.
 
@@ -83,7 +83,7 @@ ASCII после заголовка: `{"code":0,"payload":"810823612301008E70000
 - [x] Connect без PIN после того, как ZENGGE/Windows отпустили линк (пока линк занят — scan/connect падают)
 - [x] Список GATT совпадает с таблицей UUID выше (FFFF / FF01 / FF02) — **подтверждено**
 - [x] Notify: `FF02` есть; CCCD включали; хотя бы один notify пришёл. Нужен ли CCCD для write — TBD
-- [x] Write: CLI использует `write` (есть и `write-without-response`)
+- [x] Write: held/sync используют `write-without-response` на FF01 (есть и `write`; с response линк падал Unreachable)
 - [x] Кадр RGB `0B 31` **визуально** зажигает заданный цвет всей полосы
 - [x] Кадр off `0B 3B 24` **визуально** гасит ленту
 - [x] Побочные эффекты на том прогоне пользователь не отметил («всё ок»)

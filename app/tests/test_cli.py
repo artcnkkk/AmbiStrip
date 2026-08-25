@@ -105,7 +105,7 @@ def test_color_rejects_missing_channel(capsys: pytest.CaptureFixture[str]) -> No
 
 def test_subcommands_exist() -> None:
     parser = build_parser()
-    for name in ("scan", "gatt", "on", "off", "gui", "menu"):
+    for name in ("scan", "gatt", "on", "off", "gui", "menu", "sync"):
         args = parser.parse_args([name])
         assert args.command == name
 
@@ -166,3 +166,45 @@ def test_scan_address_without_hits(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     selected = load_selected(store)
     assert selected is not None
     assert selected.address == "E4:98:BB:6B:1A:AC"
+
+
+def test_sync_parser() -> None:
+    args = build_parser().parse_args(["sync", "--seconds", "2.5", "--monitor", "1"])
+    assert args.command == "sync"
+    assert args.seconds == 2.5
+    assert args.monitor == "1"
+
+
+def test_sync_seconds_rejects_zero(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["sync", "--seconds", "0"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "seconds" in err.lower() or "> 0" in err
+
+
+def test_sync_seconds_writes_then_stops(tmp_path: Path) -> None:
+    from fake_ble import FakeOpener
+    from fake_screen import SolidGrabber
+    from ledsetup.cli import run_cli_sync
+    from ledsetup.session import BleSession
+
+    opener = FakeOpener()
+    session = BleSession(opener=opener.open, closer=opener.close)
+    grabber = SolidGrabber()
+    code = asyncio.run(
+        run_cli_sync(
+            "E4:98:BB:6B:1A:AC",
+            1.0,
+            seconds=0.25,
+            monitor_flag="1",
+            grabber=grabber,
+            session=session,
+            settings_path=tmp_path / "settings.json",
+        )
+    )
+    assert code == 0
+    assert grabber.calls >= 1
+    assert opener.client.write_calls >= 1
+    assert opener.client.written[0][8] == 0x31
+    assert opener.client.written[0][9:12] == bytes([255, 0, 0])

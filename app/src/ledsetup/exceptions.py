@@ -47,3 +47,7 @@ class SettingsError(LedSetupError, ValueError):
 class NotConnectedError(LedSetupError):
     def __init__(self) -> None:
         super().__init__("нет BLE-соединения. Подключитесь из меню или выберите устройство.")
+
+
+class CaptureError(LedSetupError):
+    """Screen grab failed or no usable monitor."""

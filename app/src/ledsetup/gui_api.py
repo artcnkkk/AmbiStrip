@@ -11,6 +11,14 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict, TypeVar
 
 from ledsetup.ble import BluetoothUnavailableError, DeviceHit, GattSnapshot, WriteTargetError
+from ledsetup.capture import (
+    ScreenGrabber,
+    grab_average,
+    resolve_monitor,
+)
+from ledsetup.capture import (
+    list_monitors as enumerate_monitors,
+)
 from ledsetup.color import coerce_rgb_byte
 from ledsetup.device import (
     SelectedDevice,
@@ -21,7 +29,7 @@ from ledsetup.device import (
     save_selected,
     selected_from_hit,
 )
-from ledsetup.exceptions import SettingsError
+from ledsetup.exceptions import CaptureError, SettingsError
 from ledsetup.gatt_text import format_gatt_lines
 from ledsetup.gui_bridge import AsyncBridge
 from ledsetup.protocol import build_off_frame, build_on_frame, build_rgb_frame
@@ -77,6 +85,29 @@ class ScanEvent(TypedDict):
     device: DeviceDict | None
 
 
+class MonitorDict(TypedDict):
+    id: str
+    index: int
+    label: str
+    primary: bool
+
+
+class MonitorListResult(TypedDict):
+    monitors: list[MonitorDict]
+    selected_id: str
+    note: str
+
+
+class SyncEvent(TypedDict):
+    text: str
+    kind: MsgKind
+    state: UiState
+    running: bool
+    r: int
+    g: int
+    b: int
+
+
 class Ack(TypedDict):
     ok: bool
 
@@ -91,6 +122,7 @@ class JsApi:
         settings_path: Path | None,
         scan_fn: ScanFn,
         settings: AppSettings,
+        grabber: ScreenGrabber | None = None,
     ) -> None:
         # pywebview walks public attrs into JS; keep internals private or the
         # WinForms native window is serialized (recursion + UI-thread errors).
@@ -106,6 +138,10 @@ class JsApi:
         self._flush_on = False
         self._ui: Any | None = None
         self._io_lock = threading.Lock()
+        self._grabber = grabber
+        self._syncing = False
+        self._sync_stop = threading.Event()
+        self._sync_rgb: RGB | None = None
 
     def _bg(self, fn: Callable[[], None]) -> None:
         threading.Thread(target=fn, daemon=True).start()
@@ -156,6 +192,7 @@ class JsApi:
         return {"ok": True}
 
     def _scan_bg(self) -> None:
+        self._halt_sync()
         async def work() -> list[DeviceHit]:
             await self._session.disconnect()
             return await self._scan_fn(timeout=self._settings.scan_timeout)
@@ -232,6 +269,7 @@ class JsApi:
     def toggle_connection(self) -> Ack:
         def run() -> None:
             if self._session.is_connected:
+                self._halt_sync()
                 with self._io_lock:
                     self._wait(self._session.disconnect())
                 self._emit("onMsg", self._msg("Отключено.", "info"))
@@ -242,6 +280,8 @@ class JsApi:
         return {"ok": True}
 
     def set_color(self, red: object, green: object, blue: object) -> Ack:
+        if self._syncing:
+            return {"ok": True}
         self._pending = (coerce_rgb_byte(red), coerce_rgb_byte(green), coerce_rgb_byte(blue))
         self._arm_flush()
         return {"ok": True}
@@ -320,6 +360,7 @@ class JsApi:
         return {"ok": True}
 
     def _forget_bg(self) -> None:
+        self._halt_sync()
         # A half-dead BLE link must not block forgetting the saved address.
         with self._io_lock, suppress(Exception):
             self._wait(self._session.disconnect())
@@ -354,3 +395,105 @@ class JsApi:
         if not text:
             return self._msg("", "ok")
         return self._msg(text, kind)
+
+    def _halt_sync(self) -> None:
+        self._sync_stop.set()
+        self._syncing = False
+
+    def _sync_event(self, text: str, kind: MsgKind, *, running: bool) -> SyncEvent:
+        red, green, blue = self._sync_rgb or (0, 0, 0)
+        msg = self._msg(text, kind)
+        return {
+            "text": msg["text"],
+            "kind": msg["kind"],
+            "state": msg["state"],
+            "running": running,
+            "r": red,
+            "g": green,
+            "b": blue,
+        }
+
+    def list_monitors(self) -> MonitorListResult:
+        try:
+            found = enumerate_monitors(self._grabber)
+        except CaptureError as exc:
+            return {"monitors": [], "selected_id": "", "note": str(exc)}
+        monitor, note = resolve_monitor(found, saved_id=self._settings.monitor_id)
+        if note:
+            self._settings = replace(self._settings, monitor_id=monitor.id)
+            save_settings(self._settings, path=self._settings_path)
+        return {
+            "monitors": [
+                {
+                    "id": item.id,
+                    "index": item.index,
+                    "label": item.label,
+                    "primary": item.is_primary,
+                }
+                for item in found
+            ],
+            "selected_id": monitor.id,
+            "note": note,
+        }
+
+    def select_monitor(self, monitor_id: object) -> UiMessage:
+        ident = str(monitor_id).strip()
+        if not ident:
+            return self._msg("Выберите монитор.", "err")
+        self._settings = replace(self._settings, monitor_id=ident)
+        save_settings(self._settings, path=self._settings_path)
+        return self._msg("Монитор сохранён.", "ok")
+
+    def start_sync(self) -> Ack:
+        if self._syncing:
+            return {"ok": True}
+        self._syncing = True
+        self._sync_stop.clear()
+        self._bg(self._sync_loop)
+        return {"ok": True}
+
+    def stop_sync(self) -> Ack:
+        was = self._syncing
+        self._halt_sync()
+        if was:
+            self._bg(
+                lambda: self._emit(
+                    "onSync",
+                    self._sync_event(
+                        "Захват остановлен. На ленте последний цвет.",
+                        "info",
+                        running=False,
+                    ),
+                )
+            )
+        return {"ok": True}
+
+    def _sync_loop(self) -> None:
+        try:
+            found = enumerate_monitors(self._grabber)
+            _chosen, note = resolve_monitor(found, saved_id=self._settings.monitor_id)
+            text = "Идёт захват"
+            if note:
+                text = note
+            self._emit("onSync", self._sync_event(text, "busy", running=True))
+            while not self._sync_stop.is_set():
+                monitor, _note = resolve_monitor(found, saved_id=self._settings.monitor_id)
+                rgb = grab_average(monitor, self._grabber)
+                if self._sync_stop.is_set():
+                    return
+                self._sync_rgb = rgb
+                self._emit("onSync", self._sync_event("Идёт захват", "busy", running=True))
+                if self._throttle.allow(rgb):
+                    self._throttle.mark(rgb)
+                    msg = self._write(build_rgb_frame(*rgb), "")
+                    if msg["kind"] == "err" and msg["text"]:
+                        self._halt_sync()
+                        self._emit("onSync", self._sync_event(msg["text"], "err", running=False))
+                        return
+                self._sync_stop.wait(timeout=0.1)
+        except CaptureError as exc:
+            self._halt_sync()
+            self._emit("onSync", self._sync_event(str(exc), "err", running=False))
+        except Exception as exc:
+            self._halt_sync()
+            self._emit("onSync", self._sync_event(str(exc), "err", running=False))

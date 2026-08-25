@@ -59,3 +59,13 @@ def rgb_to_hsv(red: int, green: int, blue: int) -> tuple[float, float, float]:
 
 def rgb_to_hex(red: int, green: int, blue: int) -> str:
     return f"#{red:02x}{green:02x}{blue:02x}"
+
+
+def boost_max_value(rgb: RGB) -> RGB:
+    """Keep hue/saturation, set value to 1. Black stays black."""
+    red, green, blue = rgb
+    check_rgb(red, green, blue)
+    if red == 0 and green == 0 and blue == 0:
+        return (0, 0, 0)
+    hue, sat, _val = rgb_to_hsv(red, green, blue)
+    return hsv_to_rgb_bytes(hue, sat, 1.0)

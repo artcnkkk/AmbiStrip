@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from bleak.exc import BleakError
+
 from ledsetup.ble import NOTIFY_UUID, SERVICE_UUID, WRITE_UUID, uuids_equal
 from ledsetup.types import BleClient, DisconnectFn
 
@@ -43,9 +45,11 @@ class FakeClient:
         self.connect_calls = 0
         self.write_calls = 0
         self.notify_calls = 0
+        self.fail_writes = 0
         self.written: list[bytes] = []
-        write = FakeChar(WRITE_UUID, ("write",), 12)
-        notify = FakeChar(NOTIFY_UUID, ("notify",), 13)
+        self.response_flags: list[bool] = []
+        write = FakeChar(WRITE_UUID, ("write", "write-without-response"), 22)
+        notify = FakeChar(NOTIFY_UUID, ("notify", "read"), 19)
         self.services = FakeServices([FakeService(SERVICE_UUID, [write, notify])])
 
     async def connect(self) -> None:
@@ -58,6 +62,12 @@ class FakeClient:
     async def write_gatt_char(
         self, char_specifier: object, data: bytes, response: bool = True
     ) -> None:
+        self.response_flags.append(response)
+        if self.fail_writes > 0:
+            self.fail_writes -= 1
+            raise BleakError(
+                "Could not write value b'...' to characteristic 0016: Unreachable"
+            )
         self.write_calls += 1
         self.written.append(bytes(data))
 

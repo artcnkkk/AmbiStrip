@@ -21,7 +21,12 @@ def test_defaults_when_missing(tmp_path: Path) -> None:
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
-    original = AppSettings(scan_timeout=12.5, connect_timeout=20.0, verbose_gatt_after_write=True)
+    original = AppSettings(
+        scan_timeout=12.5,
+        connect_timeout=20.0,
+        verbose_gatt_after_write=True,
+        monitor_id="0,0,1920x1080",
+    )
     save_settings(original, path)
     assert load_settings(path) == original
 

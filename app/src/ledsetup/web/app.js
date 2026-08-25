@@ -53,6 +53,7 @@ const PRESETS = [
 
 const hsv = { h: 0.02, s: 0.9, v: 1 };
 let dragging = null;
+let syncing = false;
 
 function api() {
   return window.pywebview.api;
@@ -107,17 +108,22 @@ function setStatus(el, text, kind) {
 }
 
 function showDevice() {
+  document.body.classList.add("screen-device");
+  document.body.classList.remove("screen-color");
   document.getElementById("view-device").hidden = false;
   document.getElementById("view-color").hidden = true;
   document.getElementById("top-actions").hidden = true;
 }
 
 function showColor() {
+  document.body.classList.add("screen-color");
+  document.body.classList.remove("screen-device");
   document.getElementById("view-device").hidden = true;
   document.getElementById("view-color").hidden = false;
   document.getElementById("top-actions").hidden = false;
   sizePicker();
   paintColor();
+  loadMonitors();
 }
 
 function paintColor() {
@@ -184,6 +190,7 @@ function drawPicker() {
 }
 
 function applyRgb(r, g, b, send) {
+  if (syncing && send) return;
   const [h, s, v] = rgbToHsv(r, g, b);
   hsv.h = h; hsv.s = s; hsv.v = v;
   paintColor();
@@ -192,6 +199,7 @@ function applyRgb(r, g, b, send) {
 }
 
 function sendColor() {
+  if (syncing) return;
   const [r, g, b] = hsvToRgb(hsv.h, hsv.s, hsv.v);
   api().set_color(r, g, b);
 }
@@ -215,6 +223,7 @@ function bindPicker(canvas, kind) {
     sendColor();
   };
   canvas.addEventListener("pointerdown", (ev) => {
+    if (syncing) return;
     canvas.setPointerCapture(ev.pointerId);
     dragging = kind;
     pos(ev);
@@ -266,6 +275,47 @@ function escapeHtml(text) {
 function chooseDevice(address) {
   setStatus(document.getElementById("device-status"), "Подключаемся…", "busy");
   api().select_device(address);
+}
+
+function paintSyncPreview(r, g, b, running) {
+  const preview = document.getElementById("sync-preview");
+  const readout = document.getElementById("sync-rgb");
+  if (!running && (r === 0 && g === 0 && b === 0) && !readout.textContent) {
+    preview.style.background = "";
+    preview.querySelector("span").style.color = "";
+    readout.textContent = "";
+    return;
+  }
+  const hex = rgbHex(r, g, b);
+  preview.style.background = hex;
+  preview.querySelector("span").style.color = luminance(r, g, b) > 160 ? "#111" : "#f4f1ec";
+  readout.textContent = `${r}  ${g}  ${b}   ${hex.toUpperCase()}`;
+}
+
+function setSyncing(on, text, kind) {
+  syncing = on;
+  const view = document.getElementById("view-color");
+  view.classList.toggle("is-sync", on);
+  const btn = document.getElementById("btn-sync");
+  btn.textContent = on ? "Остановить" : "Экран → лента";
+  document.getElementById("monitor-select").disabled = on;
+  const presets = document.getElementById("presets");
+  presets.querySelectorAll("button").forEach((el) => { el.disabled = on; });
+  if (text) setStatus(document.getElementById("sync-status"), text, kind);
+}
+
+async function loadMonitors() {
+  const sel = document.getElementById("monitor-select");
+  const data = await api().list_monitors();
+  sel.innerHTML = "";
+  (data.monitors || []).forEach((item) => {
+    const opt = document.createElement("option");
+    opt.value = item.id;
+    opt.textContent = item.label;
+    sel.appendChild(opt);
+  });
+  if (data.selected_id) sel.value = data.selected_id;
+  if (data.note) setStatus(document.getElementById("sync-status"), data.note, "info");
 }
 
 function goColor() {
@@ -342,9 +392,19 @@ window.__led = {
   /** @param {UiMessage} msg */
   onForgot(msg) {
     closeSheet();
+    setSyncing(false, "", "");
     showDevice();
     setStatus(document.getElementById("device-status"), msg.text, msg.kind);
     refreshHeader(msg.state);
+  },
+  /** @param {{text: string, kind: string, state: UiState, running: boolean, r: number, g: number, b: number}} ev */
+  onSync(ev) {
+    setSyncing(ev.running, ev.text, ev.kind);
+    paintSyncPreview(ev.r, ev.g, ev.b, ev.running);
+    refreshHeader(ev.state);
+    if (ev.kind === "err") {
+      setStatus(document.getElementById("color-status"), ev.text, "err");
+    }
   },
 };
 
@@ -368,13 +428,27 @@ window.addEventListener("pywebviewready", async () => {
     api().scan();
   });
 
-  document.getElementById("btn-back").addEventListener("click", () => showDevice());
+  document.getElementById("btn-back").addEventListener("click", () => {
+    setSyncing(false, "", "");
+    api().stop_sync();
+    showDevice();
+  });
   document.getElementById("btn-toggle").addEventListener("click", () => {
     setStatus(document.getElementById("color-status"), "Секунду…", "busy");
     api().toggle_connection();
   });
   document.getElementById("btn-off").addEventListener("click", () => api().power_off());
   document.getElementById("btn-on").addEventListener("click", () => api().power_on());
+  document.getElementById("btn-sync").addEventListener("click", () => {
+    if (syncing) api().stop_sync();
+    else {
+      setStatus(document.getElementById("sync-status"), "Запускаем захват…", "busy");
+      api().start_sync();
+    }
+  });
+  document.getElementById("monitor-select").addEventListener("change", (ev) => {
+    api().select_monitor(ev.target.value);
+  });
   document.getElementById("overlay").addEventListener("click", (ev) => {
     if (ev.target.id === "overlay") closeSheet();
   });

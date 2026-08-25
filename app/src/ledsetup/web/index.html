@@ -6,7 +6,7 @@
   <title>LEDSetup</title>
   <link rel="stylesheet" href="app.css" />
 </head>
-<body>
+<body class="screen-device">
   <div class="app">
     <header class="top">
       <div>
@@ -39,21 +39,36 @@
       </div>
       <p class="kicker">Шаг 2 из 2</p>
       <h2>Цвет</h2>
-      <div class="strip" id="strip">
-        <span>лента</span>
-      </div>
-      <p class="rgb" id="rgb-readout">255  40  40</p>
-      <div class="picker">
-        <canvas id="sv" width="280" height="280"></canvas>
-        <canvas id="hue" width="280" height="18"></canvas>
-      </div>
-      <div class="presets" id="presets"></div>
-      <div class="power">
-        <button type="button" class="danger" id="btn-off">Выключить</button>
-        <div class="on-wrap">
-          <button type="button" class="ghost" id="btn-on">Включить</button>
-          <span class="on-note">гипотеза, на ките не проверяли</span>
+      <div class="color-layout">
+        <div class="color-main">
+          <div class="strip" id="strip">
+            <span>лента</span>
+          </div>
+          <p class="rgb" id="rgb-readout">255  40  40</p>
+          <div class="picker">
+            <canvas id="sv" width="280" height="280"></canvas>
+            <canvas id="hue" width="280" height="18"></canvas>
+          </div>
+          <div class="presets" id="presets"></div>
+          <div class="power">
+            <button type="button" class="danger" id="btn-off">Выключить</button>
+            <div class="on-wrap">
+              <button type="button" class="ghost" id="btn-on">Включить</button>
+              <span class="on-note">гипотеза, на ките не проверяли</span>
+            </div>
+          </div>
         </div>
+        <aside class="sync-panel" id="sync-panel">
+          <p class="kicker sync-kicker">Экран</p>
+          <h3>Средний цвет монитора</h3>
+          <p class="lead-sm">Вся лента одним RGB, не периметр и не зоны.</p>
+          <label for="monitor-select">Монитор</label>
+          <select id="monitor-select" class="field"></select>
+          <button type="button" class="primary" id="btn-sync">Экран → лента</button>
+          <div class="sync-preview" id="sync-preview"><span>превью</span></div>
+          <p class="rgb" id="sync-rgb"></p>
+          <p class="status" id="sync-status"></p>
+        </aside>
       </div>
       <p class="status" id="color-status"></p>
     </section>

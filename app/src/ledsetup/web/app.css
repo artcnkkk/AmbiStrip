@@ -20,11 +20,17 @@ body { -webkit-font-smoothing: antialiased; }
 
 .app {
   width: 100%;
-  max-width: 480px;
   min-height: 100%;
   margin: 0 auto;
   padding: clamp(16px, 4vw, 36px) clamp(16px, 5vw, 28px) 40px;
   box-sizing: border-box;
+}
+
+body.screen-device .top,
+body.screen-device #view-device {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 h1 { font-size: clamp(18px, 4vw, 22px); font-weight: 600; letter-spacing: -0.03em; margin: 0; }
@@ -158,6 +164,54 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .rgb { font-variant-numeric: tabular-nums; letter-spacing: 0.12em; color: var(--muted); margin: 0 0 16px; }
 
+.color-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(240px, 300px);
+  gap: 28px 32px;
+  align-items: start;
+  margin-top: 8px;
+}
+.color-main .picker { max-width: 340px; }
+.lead-sm { color: var(--muted); line-height: 1.45; margin: 0 0 16px; font-size: 14px; }
+.sync-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px 20px 20px;
+}
+.sync-panel h3 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin: 4px 0 8px;
+}
+.sync-kicker { margin-top: 0; }
+.sync-panel label { display: block; color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+.field {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  margin: 0 0 16px;
+}
+.sync-panel .primary { margin-bottom: 16px; }
+.sync-preview {
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: #1a1b22;
+  border: 1px solid var(--line);
+}
+.sync-preview span { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.view.is-sync .picker,
+.view.is-sync .presets { opacity: 0.45; pointer-events: none; }
+.view.is-sync .picker canvas { cursor: default; }
+
 .picker { width: 100%; }
 .picker canvas { display: block; width: 100%; border-radius: 12px; cursor: crosshair; }
 #sv { aspect-ratio: 1 / 1; height: auto; }
@@ -210,6 +264,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .sheet .row { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 .sheet .check { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--fg); }
+
+@media (max-width: 700px) {
+  .color-layout { grid-template-columns: 1fr; }
+}
 
 @media (max-height: 700px) {
   .app { padding-top: 16px; padding-bottom: 24px; }

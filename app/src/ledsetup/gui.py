@@ -15,8 +15,10 @@ from ledsetup.settings import load_settings
 from ledsetup.types import ScanFn
 
 WEB_INDEX = Path(__file__).resolve().parent / "web" / "index.html"
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 760
 
-__all__ = ["WEB_INDEX", "AsyncBridge", "JsApi", "run_gui"]
+__all__ = ["WEB_INDEX", "WINDOW_HEIGHT", "WINDOW_WIDTH", "AsyncBridge", "JsApi", "run_gui"]
 
 
 def run_gui(
@@ -48,8 +50,8 @@ def run_gui(
         "LEDSetup",
         url=str(WEB_INDEX),
         js_api=api,
-        width=480,
-        height=760,
+        width=WINDOW_WIDTH,
+        height=WINDOW_HEIGHT,
         background_color="#0b0c10",
         fullscreen=False,
         maximized=False,
@@ -63,6 +65,7 @@ def run_gui(
 
     def _closed() -> None:
         # Native window teardown can race the BLE disconnect.
+        api._halt_sync()
         with suppress(Exception):
             bridge.submit(held.disconnect()).result(timeout=2)
         bridge.stop()

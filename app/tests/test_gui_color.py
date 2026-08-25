@@ -1,6 +1,6 @@
 """Picker color mapping and write throttle — no BLE, no window."""
 
-from ledsetup.color import hsv_to_rgb_bytes, rgb_to_hsv
+from ledsetup.color import boost_max_value, hsv_to_rgb_bytes, rgb_to_hsv
 from ledsetup.protocol import build_off_frame, build_on_frame, build_rgb_frame
 from ledsetup.throttle import ColorThrottle
 
@@ -27,6 +27,23 @@ def test_rgb_roundtrip_white() -> None:
     hue, sat, val = rgb_to_hsv(255, 255, 255)
     assert sat == 0
     assert hsv_to_rgb_bytes(hue, sat, val) == (255, 255, 255)
+
+
+def test_boost_max_value_black_stays_off() -> None:
+    assert boost_max_value((0, 0, 0)) == (0, 0, 0)
+
+
+def test_boost_max_value_dim_red_is_full() -> None:
+    assert boost_max_value((40, 0, 0)) == (255, 0, 0)
+
+
+def test_boost_max_value_keeps_channel_ratios() -> None:
+    boosted = boost_max_value((10, 20, 40))
+    assert max(boosted) == 255
+    assert boosted[2] == 255
+    assert boosted[0] < boosted[1] < boosted[2]
+    assert abs(boosted[0] / 255 - 10 / 40) < 0.02
+    assert abs(boosted[1] / 255 - 20 / 40) < 0.02
 
 
 class _Clock:

@@ -333,12 +333,14 @@ async def write_on_client(
     char = _bleak_char_for(client, chosen)
     props = set(getattr(char, "properties", ()))
     try:
-        if "write" in props:
-            method = "write"
-            await client.write_gatt_char(char, payload, response=True)
-        elif "write-without-response" in props:
+        # FF01 has both. Write-with-response at sync rate (~10 Hz) makes WinRT
+        # mark handle 0x0016 Unreachable after a while; command writes last.
+        if "write-without-response" in props:
             method = "write-without-response"
             await client.write_gatt_char(char, payload, response=False)
+        elif "write" in props:
+            method = "write"
+            await client.write_gatt_char(char, payload, response=True)
         else:
             raise WriteTargetError(
                 f"{chosen.uuid} не имеет write / write-without-response",

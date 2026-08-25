@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from ledsetup.ble import (
     BluetoothUnavailableError,
     GattSnapshot,
@@ -18,6 +20,8 @@ from ledsetup.types import BleClient, ClientCloser, ClientOpener, LogFn
 
 __all__ = ["BleSession", "NotConnectedError"]
 
+RECONNECT_PAUSE = 0.5
+
 
 def _discard_log(_msg: str) -> None:
     return
@@ -33,11 +37,13 @@ class BleSession:
         log: LogFn | None = None,
         opener: ClientOpener | None = None,
         closer: ClientCloser | None = None,
+        reconnect_pause: float = RECONNECT_PAUSE,
     ) -> None:
         self.timeout = timeout
         self._log: LogFn = log if log is not None else _discard_log
         self._opener: ClientOpener = opener or open_bleak_client
         self._closer: ClientCloser = closer or close_bleak_client
+        self._reconnect_pause = reconnect_pause
         self._client: BleClient | None = None
         self._address: str | None = None
         self._snapshot: GattSnapshot | None = None
@@ -93,18 +99,43 @@ class BleSession:
         self._snapshot = snapshot_from_client(self._client)
         return self._snapshot
 
-    async def write(self, payload: bytes) -> WriteResult:
+    async def _ensure_connected(self) -> None:
+        if self.is_connected and self._client is not None:
+            return
+        address = self._address
+        if address is None:
+            await self.disconnect()
+            raise NotConnectedError()
+        await self.connect(address)
+
+    async def _write_live(self, payload: bytes) -> WriteResult:
         if not self.is_connected or self._client is None:
             await self.disconnect()
             raise NotConnectedError()
+        return await write_on_client(
+            self._client,
+            payload,
+            self._log,
+            notify_enabled=self._notify_enabled,
+            settle=0.0,
+        )
+
+    async def write(self, payload: bytes) -> WriteResult:
+        """Write, reconnecting once to the same address if the link went stale."""
+        await self._ensure_connected()
         try:
-            return await write_on_client(
-                self._client,
-                payload,
-                self._log,
-                notify_enabled=self._notify_enabled,
-                settle=0.0,
-            )
+            return await self._write_live(payload)
         except BluetoothUnavailableError:
+            address = self._address
             await self.disconnect()
-            raise
+            if address is None:
+                raise
+            self._log(f"линк отвалился, повторное подключение к {address}")
+            if self._reconnect_pause > 0:
+                await asyncio.sleep(self._reconnect_pause)
+            await self.connect(address)
+            try:
+                return await self._write_live(payload)
+            except BluetoothUnavailableError:
+                await self.disconnect()
+                raise

@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "bleak>=0.22",
     "pywebview>=5.0",
+    "mss>=10.2",
 ]
 
 [project.optional-dependencies]
@@ -54,5 +55,5 @@ packages = ["ledsetup"]
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["webview", "webview.*"]
+module = ["webview", "webview.*", "mss", "mss.*"]
 ignore_missing_imports = true

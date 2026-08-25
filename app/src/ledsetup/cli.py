@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from ledsetup.ble import (
     scan_devices,
     write_payload,
 )
+from ledsetup.capture import ScreenGrabber, grab_average, list_monitors, resolve_monitor
 from ledsetup.color import parse_rgb_channel
 from ledsetup.device import (
     DeviceNotSelectedError,
@@ -42,9 +44,14 @@ from ledsetup.protocol import (
     build_color_frame,
     build_off_frame,
     build_on_frame,
+    build_rgb_frame,
     frame_to_hex,
 )
-from ledsetup.types import InputFn
+from ledsetup.session import BleSession
+from ledsetup.settings import load_settings
+from ledsetup.sync_loop import run_screen_sync
+from ledsetup.throttle import ColorThrottle
+from ledsetup.types import RGB, InputFn
 
 CONNECT_TIMEOUT = 30.0
 
@@ -82,7 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Управление одной аналоговой RGB-лентой по BLE. "
             "Без подкоманды — окно. "
             "Имя в рекламе нестабильно — цель задаётся адресом (scan или --address). "
-            "Вся полоса — один цвет."
+            "Вся полоса — один цвет. "
+            "sync — средний цвет выбранного монитора (не периметр)."
         ),
     )
     parser.add_argument("--version", action="version", version=f"ledsetup {__version__}")
@@ -143,7 +151,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_timeout(color_p, CONNECT_TIMEOUT, f"таймаут connect (по умолчанию {CONNECT_TIMEOUT:g})")
     _add_address_flag(color_p)
+
+    sync_p = sub.add_parser(
+        "sync",
+        help="средний цвет выбранного монитора → вся лента (пока Ctrl+C или --seconds)",
+    )
+    sync_p.add_argument(
+        "--seconds",
+        type=_positive_seconds,
+        default=None,
+        metavar="N",
+        help="остановиться через N секунд (иначе только Ctrl+C)",
+    )
+    sync_p.add_argument(
+        "--monitor",
+        default=None,
+        help="номер монитора с 1 или id (left,top,WxH). Иначе сохранённый / основной",
+    )
+    _add_timeout(sync_p, CONNECT_TIMEOUT, f"таймаут connect (по умолчанию {CONNECT_TIMEOUT:g})")
+    _add_address_flag(sync_p)
     return parser
+
+
+def _positive_seconds(value: str) -> float:
+    try:
+        number = float(value.replace(",", "."))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("ожидалось число секунд") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError("--seconds должен быть > 0")
+    return number
 
 
 def _print(msg: str) -> None:
@@ -255,6 +292,64 @@ def _target_address(args: argparse.Namespace) -> str:
     return resolve_address(cli_address=address if isinstance(address, str) else None)
 
 
+async def run_cli_sync(
+    address: str,
+    timeout: float,
+    *,
+    seconds: float | None,
+    monitor_flag: str | None,
+    grabber: ScreenGrabber | None = None,
+    session: BleSession | None = None,
+    settings_path: Path | None = None,
+) -> int:
+    settings = load_settings(settings_path)
+    monitors = list_monitors(grabber)
+    for item in monitors:
+        _print(f"{item.index}. {item.label}  id={item.id}")
+    monitor, note = resolve_monitor(
+        monitors,
+        saved_id=settings.monitor_id,
+        flag=monitor_flag,
+    )
+    if note:
+        _print(note)
+    _print(f"захват: {monitor.label}")
+    if seconds is None:
+        _print("Ctrl+C — стоп; лента останется на последнем цвете")
+    else:
+        _print(f"{seconds:g} с или Ctrl+C — стоп; лента останется на последнем цвете")
+
+    held = session or BleSession(timeout=timeout, log=_print)
+    held.timeout = timeout
+    own_session = session is None
+    last: RGB | None = None
+
+    async def send(rgb: RGB) -> None:
+        await held.write(build_rgb_frame(*rgb))
+
+    def sample() -> RGB:
+        return grab_average(monitor, grabber)
+
+    deadline = None if seconds is None else time.monotonic() + seconds
+    try:
+        await held.connect(address)
+        last = await run_screen_sync(
+            sample=sample,
+            send=send,
+            should_stop=lambda: False,
+            throttle=ColorThrottle(),
+            deadline=deadline,
+        )
+    finally:
+        if own_session:
+            await held.disconnect()
+    if last is None:
+        _print("sync остановлен")
+        return 0
+    _print(f"sync остановлен, последний цвет {last[0]} {last[1]} {last[2]}")
+    return 0
+
+
 async def _run(args: argparse.Namespace) -> int:
     if args.command == "scan":
         return await _cmd_scan(
@@ -275,6 +370,13 @@ async def _run(args: argparse.Namespace) -> int:
         payload = build_color_frame(args.r, args.g, args.b, kind=kind)
         label = f"color {args.r},{args.g},{args.b} kind={kind}"
         return await _cmd_write(payload, address, args.timeout, label)
+    if args.command == "sync":
+        return await run_cli_sync(
+            address,
+            args.timeout,
+            seconds=args.seconds,
+            monitor_flag=args.monitor,
+        )
     _print(f"неизвестная команда: {args.command}")
     return 2
 
